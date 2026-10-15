@@ -7332,20 +7332,6 @@ mod extended_tests {
         let (token, token_admin_client) = create_token_contract(&env, &token_admin);
         token_admin_client.mint(&player1, &1000);
         token_admin_client.mint(&player2, &1000);
-        let treasury = Address::generate(&env);
-        let p1 = Address::generate(&env);
-        let p2 = Address::generate(&env);
-        let p3 = Address::generate(&env);
-        let p4 = Address::generate(&env);
-        let outsider = Address::generate(&env);
-        let token_admin = Address::generate(&env);
-
-        let (token, token_admin_client) = create_token_contract(&env, &token_admin);
-        token_admin_client.mint(&p1, &1000);
-        token_admin_client.mint(&p2, &1000);
-        token_admin_client.mint(&p3, &1000);
-        token_admin_client.mint(&p4, &1000);
-
         let contract_id = env.register(ChessterEscrow, ());
         let client = ChessterEscrowClient::new(&env, &contract_id);
 
@@ -7418,6 +7404,76 @@ mod extended_tests {
 
     #[test]
     fn test_standardized_event_topics_and_payloads_refund() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let coordinator = Address::generate(&env);
+        let player1 = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+
+        let (token, token_admin_client) = create_token_contract(&env, &token_admin);
+        token_admin_client.mint(&player1, &1000);
+
+        let contract_id = env.register(ChessterEscrow, ());
+        let client = ChessterEscrowClient::new(&env, &contract_id);
+
+        client.init(&coordinator, &500);
+        client.add_whitelisted_token(&token.address);
+
+        let game_code = String::from_str(&env, "GAME_REFUND_TOPIC");
+        approve(&env, &token, &player1, &contract_id, 1000);
+        client.create_match(&game_code, &player1, &token.address, &100);
+
+        env.ledger().set_timestamp(3601);
+        client.refund_after_timeout(&game_code);
+
+        let events = env.events().all();
+        let refund_event = events.iter().find(|(id, topics, _)| {
+            if id != &contract_id || topics.len() != 3 {
+                return false;
+            }
+            let t0: Result<Symbol, _> = topics.get(0).unwrap().try_into_val(&env);
+            let t1: Result<Symbol, _> = topics.get(1).unwrap().try_into_val(&env);
+            t0 == Ok(symbol_short!("escrow")) && t1 == Ok(symbol_short!("refunded"))
+        });
+        assert!(refund_event.is_some(), "refund event missing");
+        let (_, topics, data) = refund_event.unwrap();
+        let refund_match_id: u64 = topics.get(2).unwrap().try_into_val(&env).unwrap();
+        assert_eq!(refund_match_id, 1);
+        let (winner, payout, fee): (Option<Address>, i128, i128) = data.try_into_val(&env).unwrap();
+        assert_eq!(winner, None);
+        assert_eq!(payout, 100);
+        assert_eq!(fee, 0);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Issue #387 — Reject Duplicate Tournament Winners
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_complete_tournament_rejects_duplicate_and_non_participant_winners() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let coordinator = Address::generate(&env);
+        let treasury = Address::generate(&env);
+        let p1 = Address::generate(&env);
+        let p2 = Address::generate(&env);
+        let p3 = Address::generate(&env);
+        let p4 = Address::generate(&env);
+        let outsider = Address::generate(&env);
+        let token_admin = Address::generate(&env);
+
+        let (token, token_admin_client) = create_token_contract(&env, &token_admin);
+        token_admin_client.mint(&p1, &1000);
+        token_admin_client.mint(&p2, &1000);
+        token_admin_client.mint(&p3, &1000);
+        token_admin_client.mint(&p4, &1000);
+
+        let contract_id = env.register(ChessterEscrow, ());
+        let client = ChessterEscrowClient::new(&env, &contract_id);
+
+        client.init(&coordinator, &500);
         client.set_tournament_fee_bps(&250);
         client.set_treasury_vault(&treasury);
         client.add_supported_token(&token.address);
@@ -7597,42 +7653,6 @@ mod extended_tests {
         env.mock_all_auths();
 
         let coordinator = Address::generate(&env);
-        let player1 = Address::generate(&env);
-        let token_admin = Address::generate(&env);
-
-        let (token, token_admin_client) = create_token_contract(&env, &token_admin);
-        token_admin_client.mint(&player1, &1000);
-
-        let contract_id = env.register(ChessterEscrow, ());
-        let client = ChessterEscrowClient::new(&env, &contract_id);
-
-        client.init(&coordinator, &500);
-        client.add_whitelisted_token(&token.address);
-
-        let game_code = String::from_str(&env, "GAME_REFUND_TOPIC");
-        approve(&env, &token, &player1, &contract_id, 1000);
-        client.create_match(&game_code, &player1, &token.address, &100);
-
-        env.ledger().set_timestamp(3601);
-        client.refund_after_timeout(&game_code);
-
-        let events = env.events().all();
-        let refund_event = events.iter().find(|(id, topics, _)| {
-            if id != &contract_id || topics.len() != 3 {
-                return false;
-            }
-            let t0: Result<Symbol, _> = topics.get(0).unwrap().try_into_val(&env);
-            let t1: Result<Symbol, _> = topics.get(1).unwrap().try_into_val(&env);
-            t0 == Ok(symbol_short!("escrow")) && t1 == Ok(symbol_short!("refunded"))
-        });
-        assert!(refund_event.is_some(), "refund event missing");
-        let (_, topics, data) = refund_event.unwrap();
-        let refund_match_id: u64 = topics.get(2).unwrap().try_into_val(&env).unwrap();
-        assert_eq!(refund_match_id, 1);
-        let (winner, payout, fee): (Option<Address>, i128, i128) = data.try_into_val(&env).unwrap();
-        assert_eq!(winner, None);
-        assert_eq!(payout, 100);
-        assert_eq!(fee, 0);
         let treasury = Address::generate(&env);
         let p1 = Address::generate(&env);
         let p2 = Address::generate(&env);
