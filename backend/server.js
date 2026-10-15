@@ -37,6 +37,7 @@ const { moderateMessage, checkSlowMode } = require("./services/chatService");
 const { JWT_SECRET } = require("./middleware/authMiddleware");
 const { createSocketRateLimiter } = require("./middleware/socketRateLimiter");
 const { csrfProtection, generateSignedToken, setCsrfCookie } = require("./middleware/csrfMiddleware");
+const { fetchMetadataPolicy } = require("./middleware/fetchMetadata");
 const {
   validateSocketPayload,
   JoinRoomPayload,
@@ -112,6 +113,7 @@ app.use(
   }),
 );
 app.use(express.json());
+app.use(fetchMetadataPolicy);
 app.use(csrfProtection);
 
 app.get("/api/csrf-token", (req, res) => {
@@ -139,6 +141,7 @@ app.use("/api/escrow", escrowRoutes);
 app.use("/api", authRoutes);
 app.use("/api", botRoutes);
 app.use("/api", healthRoutes);
+app.use("/health", healthRoutes);
 app.use("/api/referrals", referralRoutes);
 app.use("/api/puzzles", puzzleRoutes);
 app.use("/api", tournamentRoutes);
